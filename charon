@@ -7,9 +7,7 @@ CONF_FILE = 'haproxy.cnf'
 DEFAULTS_FILE = 'defaults.cnf'
 FRONTEND_DIR = 'frontends'
 
-HAPROXY_HEADER = '''#This HAProxy configuration was generated with charon and should not be edited manually!
-
-'''
+HAPROXY_HEADER = '#This HAProxy configuration was generated with charon and should not be edited manually!\n'
 
 def mkdir(path, empty=False, parents=False):
     if os.path.isdir(path):
@@ -30,7 +28,10 @@ def error(string):
 
 def output(fp, string):
     fp.write(string+'\n')
-    print string
+    #print string
+
+def dump_json(obj):
+    return json.dumps(obj, sort_keys=True, indent=4)
 
 DEFAULTS = {
     'global': {
@@ -56,9 +57,6 @@ DEFAULTS = {
     },
 }
 
-def dump_json(obj):
-    return json.dumps(obj, sort_keys=True, indent=4)
-
 def do_reset(args=[]):
     for f in (CONF_FILE, DEFAULTS_FILE):
         try:
@@ -79,17 +77,14 @@ def do_setup(args=[]):
 
     mkdir(FRONTEND_DIR)
 
-    defaults = get_defaults()
     frontends = get_frontends()
-    generate_config(defaults, frontends)
+    generate_config(frontends)
 
-def do_list(args=[]):
+def do_show(args=[]):
     frontends = get_frontends()
-    for fe in frontends:
-        notify(fe)
+    generate_config(frontends, fp=sys.stdout)
 
 def do_add_frontend(args=[]):
-    defaults = get_defaults()
     frontends = get_frontends()
 
     try:
@@ -101,43 +96,121 @@ def do_add_frontend(args=[]):
     frontends.append(fe)
     set_frontends(frontends)
 
-    generate_config(defaults, frontends)
+    frontends = get_frontends() #re-get incase the one added overwrote another (same name)
+    generate_config(frontends)
 
 def do_remove_frontend(args=[]):
-    pass
+    if len(args) != 1:
+        return
+
+    fe_name = args[0]
+    frontends = get_frontends()
+    frontends = filter(lambda fe: fe['name'] != fe_name, frontends)
+
+    set_frontends(frontends)
+    generate_config(frontends)
+
+def do_add_backend(args=[]):
+    #frontend_name, backend_name, backend_host, enabled|disabled(optional)
+    if not 3 <= len(args) <= 4:
+        return
+
+    fe_name, be_name, be_host = args[:3]
+    state = args[3] if len(args) == 4 else 'enabled'
+    if state not in ('enabled', 'disabled',):
+        error('Invalid state "%s" specified' % (state,))
+        return
+
+    frontends = get_frontends()
+    try:
+        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
+    except:
+        error('Frontend %s not found' % (fe_name,))
+        return
+
+    fe['backends'][be_name] = { 'host': be_host, 'state': state }
+
+    set_frontends(frontends)
+    generate_config(frontends)
+
+def do_remove_backend(args=[]):
+    #fe_name, be_name
+    if len(args) != 2:
+        error('Invalid remove backend arguments: ' + ' '.join(args))
+        return
+    fe_name, be_name = args[:2]
+
+    frontends = get_frontends()
+    try:
+        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
+    except:
+        error('Frontend %s not found' % (fe_name,))
+        return
+
+    try:
+        del fe['backends'][be_name]
+    except: pass
+
+    set_frontends(frontends)
+    generate_config(frontends)
 
 def do_enable(args=[]):
-    pass
+    set_backend_state(args, 'enabled')
 
 def do_disable(args=[]):
-    pass
+    set_backend_state(args, 'disabled')
 
-def generate_config(defaults, frontends):
+def set_backend_state(args, state):
+    #fe_name, be_name
+    if len(args) != 2:
+        error('Invalid remove backend arguments: ' + ' '.join(args))
+        return
+    fe_name, be_name = args[:2]
+
+    frontends = get_frontends()
     try:
-        notify('Generating HAProxy config file...\n')
-        conf_fp = open(CONF_FILE, 'w')
-        conf_fp.write(HAPROXY_HEADER)
+        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
+    except:
+        error('Frontend %s not found' % (fe_name,))
+        return
+
+    try:
+        fe['backends'][be_name]['state'] = state
+    except:
+        error('Backend %s not found' % (be_name,))
+        return
+
+    set_frontends(frontends)
+    generate_config(frontends)
+
+def generate_config(frontends, defaults=None, fp=None):
+    try:
+        defaults = defaults or get_defaults()
+
+        close_fp = fp is None
+        fp = fp or open(CONF_FILE, 'w')
+        fp.write(HAPROXY_HEADER)
 
         for section in ('global', 'defaults'):
-            output(conf_fp, '\n'+section)
+            output(fp, '\n'+section)
             for k, v in defaults[section].items():
                 if isinstance(v, str) or isinstance(v, unicode):
                     v = str(v)
-                    output(conf_fp, '\t%s\t\t%s' % (k, v,))
+                    output(fp, '\t%s\t\t%s' % (k, v,))
                 elif isinstance(v, collections.Iterable):
                     for val in v:
                         val = str(val) #convert unicode to strings
-                        output(conf_fp, '\t%s\t\t%s' % (k, val,))
+                        output(fp, '\t%s\t\t%s' % (k, val,))
 
-        output(conf_fp, '')
+        output(fp, '')
         for fe in frontends:
             for line in format_frontend(fe, defaults):
-                output(conf_fp, line)
+                output(fp, line)
     except:
         error('There was a problem setting things up')
         raise
     finally:
-        conf_fp.close()
+        close_fp and fp and fp.close()
 
 def format_frontend(fe, defaults):
     lines = []
@@ -153,7 +226,12 @@ def format_frontend(fe, defaults):
                 for val in v:
                     val = str(val)
                     lines.append('\t%s\t\t%s' % (k, val,))
-    if len(fe['backends']) == 0:
+
+    lines.append('')
+    for be_name, be in fe['backends'].items():
+        lines.append('\tserver %s %s %s' % (be_name, be['host'], be['state'],))
+
+    if len(fe['backends'].keys()) == 0:
         lines = map(lambda x: '#'+x, lines)
 
     return lines
@@ -162,7 +240,7 @@ def parse_frontend(args):
     fe = {}
     fe['name'] = args[0]
     fe['host'] = args[1]
-    fe['backends'] = []
+    fe['backends'] = {}
     return fe
 
 def get_defaults():
@@ -180,7 +258,7 @@ def get_defaults():
 
 def get_frontends():
     frontends = []
-    for fe_file in glob.glob('%s/*.front' % (FRONTEND_DIR,)):
+    for fe_file in glob.glob('%s/*' % (FRONTEND_DIR,)):
         fp = None
         try:
             fp = open(fe_file, 'r')
@@ -194,19 +272,25 @@ def get_frontends():
     return frontends
 
 def set_frontends(frontends):
-    for fe in frontends:
-        fp = None
-        try:
-            fp = open('%s/%s.conf' % (FRONTEND_DIR, fe['name'],), 'w')
-            fp.write(dump_json(fe))
-        except:
-            pass
-        finally:
-            fp and fp.close()
+    shutil.copytree(FRONTEND_DIR, FRONTEND_DIR+'_backup')
+    try:
+        for fe in frontends:
+            fp = None
+            try:
+                fp = open('%s/%s' % (FRONTEND_DIR, fe['name'],), 'w')
+                fp.write(dump_json(fe))
+            except:
+                pass #TODO
+            finally:
+                fp and fp.close()
+    except: pass #TODO
+    finally:
+        shutil.rmtree(FRONTEND_DIR+'_backup', True)
 
 def test_config():
-    #if not os.path.isdir(FRONTEND_DIR):
-        #raise Exception('Frontend directory does not exist')
+    if not os.path.isdir(FRONTEND_DIR):
+        raise Exception('Frontend directory does not exist')
+
     if not os.path.isfile(CONF_FILE):
         raise Exception('Configuration file does not exist')
 
@@ -216,7 +300,7 @@ if __name__ == '__main__':
         sys.exit(2)
 
     command = sys.argv[1].lower()
-    commands = ('reset', 'setup', 'list', 'add-frontend', 'remove-frontend', 'add-backend', 'remove-backend', 'enable', 'disable',)
+    commands = ('reset', 'setup', 'show', 'add-frontend', 'remove-frontend', 'add-backend', 'remove-backend', 'enable', 'disable',)
     if command not in commands:
         error("Invalid command '%s'" % (command,))
         sys.exit(2)
