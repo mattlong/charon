@@ -1,314 +1,259 @@
 #!/usr/bin/env python
 
-import sys, os, shutil, collections, json, glob
+import sys, os, shutil, json, re
 
-BASE_PATH = os.path.dirname(__file__)
-CONF_FILE = 'haproxy.cnf'
-DEFAULTS_FILE = 'defaults.cnf'
+BASE_PATH = '/etc/charon'
+GLOBAL_CONFIG_FILE = 'global'
 FRONTEND_DIR = 'frontends'
+HAPROXY_CFG_PATH = '/etc/haproxy/haproxy.cfg'
+CFG_HEADER = '# WARNING: This HAProxy configuration was generated with Charon and should not be edited directly!\n\n'
 
-HAPROXY_HEADER = '#This HAProxy configuration was generated with charon and should not be edited manually!\n'
-
+# Utilities
 def mkdir(path, empty=False, parents=False):
     if os.path.isdir(path):
-        if empty:
-            shutil.rmtree(path)
-        else:
-            return
-    if parents:
-        os.makedirs(path)
-    else:
-        os.mkdir(path)
+        if empty: shutil.rmtree(path)
+        else: return
+    if parents: os.makedirs(path)
+    else: os.mkdir(path)
 
-def notify(string):
+def info(string):
     print string
 
 def error(string):
     print 'ERROR: ' + string
 
-def output(fp, string):
-    fp.write(string+'\n')
-    #print string
+class Frontend(object):
+    def __init__(self, name, backend_params=''):
+        self.name = name
+        self.backend_params = backend_params
 
-def dump_json(obj):
-    return json.dumps(obj, sort_keys=True, indent=4)
-
-DEFAULTS = {
-    'global': {
-        'log': '127.0.0.1 local0 info',
-        'maxconn': '4096',
-        'user': 'haproxy',
-        'group': 'haproxy',
-        'daemon': '',
-        'stats': 'socket /etc/haproxy/socket level admin',
-    },
-    'defaults': {
-        'log': 'global',
-        'mode': 'http',
-        'balance': 'roundrobin',
-        'option': ['httplog', 'dontlognull', 'redispatch', 'httpclose', 'forwardfor'],
-        'retries': '3',
-        'contimeout': '5000',
-        'clitimeout': '50000',
-        'srvtimeout': '50000',
-    },
-    'listen': {
-        'stats': ['enable', 'scope .', 'realm Haproxy\\ Statistics', 'refresh 10s', 'hide-version', 'uri /secret-haproxy-stats', 'auth admin:password', 'httpclose', 'forwardfor'],
-    },
-}
-
-def do_reset(args=[]):
-    for f in (CONF_FILE, DEFAULTS_FILE):
-        try:
-            os.remove(f)
-        except: pass
-
-    for d in (FRONTEND_DIR,):
-        shutil.rmtree(d, True)
-
-    do_setup()
-
-def do_setup(args=[]):
-    try:
-        test_config()
-        notify('Already setup, doing nothing.')
-        return
-    except: pass
-
-    mkdir(FRONTEND_DIR)
-
-    frontends = get_frontends()
-    generate_config(frontends)
-
-def do_show(args=[]):
-    frontends = get_frontends()
-    generate_config(frontends, fp=sys.stdout)
-
-def do_add_frontend(args=[]):
-    frontends = get_frontends()
-
-    try:
-        fe = parse_frontend(args)
-    except:
-        error('Invalid frontend: %s' % ' '.join(args))
-        sys.exit(1)
-
-    frontends.append(fe)
-    set_frontends(frontends)
-
-    frontends = get_frontends() #re-get incase the one added overwrote another (same name)
-    generate_config(frontends)
-
-def do_remove_frontend(args=[]):
-    if len(args) != 1:
-        return
-
-    fe_name = args[0]
-    frontends = get_frontends()
-    frontends = filter(lambda fe: fe['name'] != fe_name, frontends)
-
-    set_frontends(frontends)
-    generate_config(frontends)
-
-def do_add_backend(args=[]):
-    #frontend_name, backend_name, backend_host, enabled|disabled(optional)
-    if not 3 <= len(args) <= 4:
-        return
-
-    fe_name, be_name, be_host = args[:3]
-    state = args[3] if len(args) == 4 else 'enabled'
-    if state not in ('enabled', 'disabled',):
-        error('Invalid state "%s" specified' % (state,))
-        return
-
-    frontends = get_frontends()
-    try:
-        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
-    except:
-        error('Frontend %s not found' % (fe_name,))
-        return
-
-    fe['backends'][be_name] = { 'host': be_host, 'state': state }
-
-    set_frontends(frontends)
-    generate_config(frontends)
-
-def do_remove_backend(args=[]):
-    #fe_name, be_name
-    if len(args) != 2:
-        error('Invalid remove backend arguments: ' + ' '.join(args))
-        return
-    fe_name, be_name = args[:2]
-
-    frontends = get_frontends()
-    try:
-        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
-    except:
-        error('Frontend %s not found' % (fe_name,))
-        return
-
-    try:
-        del fe['backends'][be_name]
-    except: pass
-
-    set_frontends(frontends)
-    generate_config(frontends)
-
-def do_enable(args=[]):
-    set_backend_state(args, 'enabled')
-
-def do_disable(args=[]):
-    set_backend_state(args, 'disabled')
-
-def set_backend_state(args, state):
-    #fe_name, be_name
-    if len(args) != 2:
-        error('Invalid remove backend arguments: ' + ' '.join(args))
-        return
-    fe_name, be_name = args[:2]
-
-    frontends = get_frontends()
-    try:
-        fe = filter(lambda fe: fe['name'] == fe_name, frontends)[0]
-    except:
-        error('Frontend %s not found' % (fe_name,))
-        return
-
-    try:
-        fe['backends'][be_name]['state'] = state
-    except:
-        error('Backend %s not found' % (be_name,))
-        return
-
-    set_frontends(frontends)
-    generate_config(frontends)
-
-def generate_config(frontends, defaults=None, fp=None):
-    try:
-        defaults = defaults or get_defaults()
-
-        close_fp = fp is None
-        fp = fp or open(CONF_FILE, 'w')
-        fp.write(HAPROXY_HEADER)
-
-        for section in ('global', 'defaults'):
-            output(fp, '\n'+section)
-            for k, v in defaults[section].items():
-                if isinstance(v, str) or isinstance(v, unicode):
-                    v = str(v)
-                    output(fp, '\t%s\t\t%s' % (k, v,))
-                elif isinstance(v, collections.Iterable):
-                    for val in v:
-                        val = str(val) #convert unicode to strings
-                        output(fp, '\t%s\t\t%s' % (k, val,))
-
-        output(fp, '')
-        for fe in frontends:
-            for line in format_frontend(fe, defaults):
-                output(fp, line)
-    except:
-        error('There was a problem setting things up')
-        raise
-    finally:
-        close_fp and fp and fp.close()
-
-def format_frontend(fe, defaults):
-    lines = []
-    fe_line = 'listen %s %s' % (fe['name'], fe['host'],)
-
-    lines.append(fe_line)
-    if 'listen' in defaults:
-        for k, v in defaults['listen'].items():
-            if isinstance(v, str) or isinstance(v, unicode):
-                v = str(v)
-                lines.append('\t%s\t\t%s' % (k, v,))
-            elif isinstance(v, collections.Iterable):
-                for val in v:
-                    val = str(val)
-                    lines.append('\t%s\t\t%s' % (k, val,))
-
-    lines.append('')
-    for be_name, be in fe['backends'].items():
-        lines.append('\tserver %s %s %s' % (be_name, be['host'], be['state'],))
-
-    if len(fe['backends'].keys()) == 0:
-        lines = map(lambda x: '#'+x, lines)
-
-    return lines
-
-def parse_frontend(args):
-    fe = {}
-    fe['name'] = args[0]
-    fe['host'] = args[1]
-    fe['backends'] = {}
-    return fe
-
-def get_defaults():
-    if os.path.isfile(DEFAULTS_FILE):
-        def_fp = open(DEFAULTS_FILE, 'r')
-        defaults = json.loads(def_fp.read())
-        def_fp.close()
-    else:
-        defaults = DEFAULTS
-        def_fp = open(DEFAULTS_FILE, 'w')
-        def_fp.write(dump_json(DEFAULTS))
-        def_fp.close()
-
-    return defaults
-
-def get_frontends():
-    frontends = []
-    for fe_file in glob.glob('%s/*' % (FRONTEND_DIR,)):
+    def get_backends(self, serialize=False):
         fp = None
+        backends = {}
         try:
-            fp = open(fe_file, 'r')
-            fe = json.loads(fp.read())
-            frontends.append(fe)
-        except:
-            error('Could not parse frontend %s' % fe_file)
+            fp = open(os.path.join(get_frontend_dir(), self.name), 'r')
+            backends = json.loads(fp.read())
+            fp.close()
+        except: pass
         finally:
             fp and fp.close()
 
+        return json.dumps(backends, indent=4) if serialize else backends
+
+    def _update_backends(self, backends):
+        fp = open(os.path.join(get_frontend_dir(), self.name), 'w')
+        fp.write(json.dumps(backends, indent=4)+'\n')
+        fp.close()
+
+    def add_backend(self, host, state='enabled'):
+        backends = self.get_backends()
+        backends[host] = { 'state': state }
+        self._update_backends(backends)
+
+    def remove_backend(self, host):
+        backends = self.get_backends()
+        if host in backends:
+            del backends[host]
+        self._update_backends(backends)
+
+    def enable_backend(self, host):
+        backends = self.get_backends()
+        backends[host] = { 'state': 'enabled' }
+        self._update_backends(backends)
+
+    def disable_backend(self, host):
+        backends = self.get_backends()
+        backends[host] = { 'state': 'disabled' }
+        self._update_backends(backends)
+
+fe_reg = re.compile(r'\s*listen\s+([^\s]+)\s+([^\s]+)[\s$]+')
+be_reg = re.compile(r'\s*{{BACKEND}}(.*)$')
+
+def parse_global():
+    name, frontends = None, {}
+    fp = open(os.path.join(BASE_PATH, GLOBAL_CONFIG_FILE), 'r')
+    for line in fp.readlines():
+        m = fe_reg.match(line)
+        if m:
+            name = m.group(1)
+            frontends[name] = Frontend(name)
+            continue
+        m = be_reg.match(line)
+        if name is not None and m:
+            frontends[name].backend_params = m.group(1)
+            name = None
+    fp.close()
+
     return frontends
 
-def set_frontends(frontends):
-    shutil.copytree(FRONTEND_DIR, FRONTEND_DIR+'_backup')
-    try:
-        for fe in frontends:
-            fp = None
-            try:
-                fp = open('%s/%s' % (FRONTEND_DIR, fe['name'],), 'w')
-                fp.write(dump_json(fe))
-            except:
-                pass #TODO
-            finally:
-                fp and fp.close()
-    except: pass #TODO
-    finally:
-        shutil.rmtree(FRONTEND_DIR+'_backup', True)
+def generate_config():
+    global_fp = open(os.path.join(BASE_PATH, GLOBAL_CONFIG_FILE), 'r')
+    fp = open(os.path.join(BASE_PATH, 'haproxy.cfg.temp'), 'w')
+    fp.write(CFG_HEADER)
 
-def test_config():
-    if not os.path.isdir(FRONTEND_DIR):
-        raise Exception('Frontend directory does not exist')
+    frontend, frontends = None, parse_global()
 
-    if not os.path.isfile(CONF_FILE):
-        raise Exception('Configuration file does not exist')
+    def do_basic(fp, frontend):
+        for host, backend in frontend.get_backends().items():
+            count += 1
+            state = backend['state'] if backend['state'] == 'disabled' else ''
+            be_text = '\tserver %s_%d %s %s\n' % (name, count, host, state,)
+            fp.write(be_text)
+        fp.write('\n')
+
+    for line in global_fp.readlines():
+        m = fe_reg.match(line)
+        if m:
+            if frontend is not None:
+                do_basic(fp, frontend)
+                frontend = None
+
+            name, count = m.group(1), 0
+            frontend = frontends[name]
+            fp.write(line)
+            continue
+
+        m = be_reg.match(line)
+        if frontend is not None and m:
+            for host, backend in frontend.get_backends().items():
+                count += 1
+                state = backend['state'] if backend['state'] == 'disabled' else ''
+                be_text = 'server %s_%d %s %s' % (name, count, host, state,)
+                fp.write(re.sub('{{BACKEND}}', be_text, line))
+            frontend = None
+            continue
+        
+        if frontend is not None and line.strip() == '':
+            do_basic(fp, frontend)
+            frontend = None
+            continue
+
+        fp.write(line)
+
+def get_frontend_dir():
+    return os.path.join(BASE_PATH, FRONTEND_DIR)
+
+def get_frontends():
+    return parse_global()
+    #frontend_dir = get_frontend_dir()
+    #TODO: this list should come from parsing the existing haproxy.cfg, not the frontends directory
+    #return filter(lambda f: os.path.isfile(os.path.join(frontend_dir, f)), os.listdir(frontend_dir))
+
+def do_showall(*args, **kwargs):
+    results = {}
+    kwargs['serialize'] = False
+
+    for frontend_name in get_frontends().keys(): 
+        results[frontend_name] = do_show(*(frontend_name,), **kwargs)
+    return json.dumps(results, indent=4)
+
+def do_show(*args, **kwargs):
+    if len(args) != 1:
+        do_help()
+
+    frontend_name = args[0]
+    frontend = Frontend(frontend_name)
+    results = frontend.get_backends(serialize=kwargs.get('serialize', True))
+    return results
+
+def do_add(*args, **kwargs):
+    if not 2 <= len(args) <= 3:
+        do_help()
+
+    frontend_name, host = args[:2]
+    state = args[2] if len(args) == 3 else 'enabled'
+    if state not in ('enabled', 'disabled',):
+        do_help()
+
+    frontends = get_frontends()
+    if frontend_name not in frontends:
+        error('Frontend %s not found' % frontend_name)
+        sys.exit(1)
+
+    frontends[frontend_name].add_backend(host, state=state)
+    generate_config()
+
+    return do_show(*(frontend_name,))
+
+def do_remove(*args, **kwargs):
+    if len(args) != 2:
+        do_help()
+
+    frontend_name, host = args[:2]
+
+    frontends = get_frontends()
+    if frontend_name not in frontends:
+        error('Frontend %s not found' % frontend_name)
+        sys.exit(1)
+
+    frontends[frontend_name].remove_backend(host)
+    generate_config()
+
+    return do_show(*(frontend_name,))
+
+def do_enable(*args, **kwargs):
+    if len(args) != 2:
+        do_help()
+
+    frontend_name, host = args[:2]
+
+    frontends = get_frontends()
+    if frontend_name not in frontends:
+        error('Frontend %s not found' % frontend_name)
+        sys.exit(1)
+
+    frontends[frontend_name].enable_backend(host)
+    generate_config()
+
+    return do_show(*(frontend_name,))
+
+def do_disable(*args, **kwargs):
+    if len(args) != 2:
+        do_help()
+
+    frontend_name, host = args[:2]
+
+    frontends = get_frontends()
+    if frontend_name not in frontends:
+        error('Frontend %s not found' % frontend_name)
+        sys.exit(1)
+
+    frontends[frontend_name].disable_backend(host)
+    generate_config()
+
+    return do_show(*(frontend_name,))
+
+def do_help(args=None):
+        info('''Usage: charon <command> [<args>]
+
+Available commands are:
+all
+show <frontend_name>
+add <frontend_name> <host> <enabled|disabled>(optional)
+remove <frontend_name> <host>
+enable <frontend_name> <host>
+disable <frontend_name> <host>''')
+        sys.exit(2) 
 
 if __name__ == '__main__':
+
     if len(sys.argv) < 2:
-        notify("Usage: charon <command>")
+        do_help()
         sys.exit(2)
 
-    command = sys.argv[1].lower()
-    commands = ('reset', 'setup', 'show', 'add-frontend', 'remove-frontend', 'add-backend', 'remove-backend', 'enable', 'disable',)
-    if command not in commands:
-        error("Invalid command '%s'" % (command,))
+    commands = {
+        'help': do_help,
+        'showall': do_showall,
+        'show': do_show,
+        'add': do_add,
+        'remove': do_remove,
+        'enable': do_enable,
+        'disable': do_disable,
+    }
+
+    command, args = sys.argv[1].lower().replace('-', '_'), sys.argv[2:]
+    if command not in commands.keys():
+        info("charon: '%s' is not a charon command. See 'charon help'." % (command,))
         sys.exit(2)
 
-    command = command.replace('-', '_')
-    args = sys.argv[2:]
-
-    for obj in (CONF_FILE, DEFAULTS_FILE, FRONTEND_DIR,):
-        globals()[obj] = os.path.join(BASE_PATH, obj)
-
-    globals()['do_'+command](args)
+    info(commands[command](*args))
