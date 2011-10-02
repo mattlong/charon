@@ -2,6 +2,10 @@
 
 import sys, os, shutil, json, re
 
+from fabric import context_managers
+from fabric.api import local
+from fabric.network import disconnect_all
+
 BASE_PATH = '/etc/charon'
 GLOBAL_CONFIG_FILE = 'global'
 FRONTEND_DIR = 'frontends'
@@ -135,6 +139,16 @@ def generate_config():
     global_fp and global_fp.close()
     fp and fp.close()
 
+    shutil.copy(HAPROXY_CFG_PATH, HAPROXY_CFG_PATH+'.last')
+    shutil.move(os.path.join(BASE_PATH, 'haproxy.cfg.temp'), HAPROXY_CFG_PATH)
+
+def reload_haproxy():
+    with context_managers.hide('everything'):
+        result = local('/etc/init.d/haproxy reload', capture=False)
+        disconnect_all()
+
+    return result.return_code
+
 def validate_args(*args):
     frontend_name, host = None, None
 
@@ -156,10 +170,8 @@ def do_show(*args, **kwargs):
     (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     for fe_name in parse_global().keys(): 
         results[fe_name] = frontends[fe_name].get_backends()
-
     if frontend_name:
         results = results[frontend_name]
-
     if host:
         results = results[host]
 
@@ -175,6 +187,7 @@ def do_add(*args, **kwargs):
 
     frontends[frontend_name].add_backend(host, state=state)
     generate_config()
+    return_code = reload_haproxy()
 
     results = do_show(*(frontend_name,))
     return json.dumps(results, indent=4) if kwargs.get('serialize') else results 
@@ -183,6 +196,8 @@ def do_remove(*args, **kwargs):
     (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].remove_backend(host)
     generate_config()
+    return_code = reload_haproxy()
+
     results = do_show(*(frontend_name,))
     return json.dumps(results, indent=4) if kwargs.get('serialize') else results 
 
@@ -190,6 +205,8 @@ def do_enable(*args, **kwargs):
     (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].enable_backend(host)
     generate_config()
+    return_code = reload_haproxy()
+
     results = do_show(*(frontend_name,))
     return json.dumps(results, indent=4) if kwargs.get('serialize') else results 
 
@@ -197,6 +214,8 @@ def do_disable(*args, **kwargs):
     (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].disable_backend(host)
     generate_config()
+    return_code = reload_haproxy()
+
     results = do_show(*(frontend_name,))
     return json.dumps(results, indent=4) if kwargs.get('serialize') else results 
 
