@@ -212,6 +212,7 @@ disable <frontend_name> <host>''')
         sys.exit(2) 
 
 def main(*args, **kwargs):
+    args = args[1:]
     if len(args) < 1: do_help()
 
     commands = {

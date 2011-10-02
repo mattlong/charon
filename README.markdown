@@ -2,12 +2,11 @@
 Charon is a set a tools to manage an instance of the load balancer HAProxy. You can do so either locally or remotely using either the command-line directly or via a Fabric wrapper.
 
 ##Command Line##
-charon all
-charon show <frontend_name>
-charon add <frontend_name> <host> <enabled|disabled>(optional)
-charon remove <frontend_name> <host>
-charon enable <frontend_name> <host>
-charon disable <frontend_name> <host>
+show [<frontend_name> [<host>]]
+add <frontend_name> <host> [<enabled|disabled>]
+remove <frontend_name> <host>
+enable <frontend_name> <host>
+disable <frontend_name> <host>
 
 ##Fabric API##
 get_frontends()
