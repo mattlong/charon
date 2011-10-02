@@ -8,7 +8,6 @@ FRONTEND_DIR = 'frontends'
 HAPROXY_CFG_PATH = '/etc/haproxy/haproxy.cfg'
 CFG_HEADER = '# WARNING: This HAProxy configuration was generated with Charon and should not be edited directly!\n\n'
 
-# Utilities
 def mkdir(path, empty=False, parents=False):
     if os.path.isdir(path):
         if empty: shutil.rmtree(path)
@@ -22,26 +21,29 @@ def info(string):
 def error(string):
     print 'ERROR: ' + string
 
+def abs_path(rel_path):
+    return os.path.join(BASE_PATH, rel_path)
+
 class Frontend(object):
     def __init__(self, name, backend_params=''):
         self.name = name
         self.backend_params = backend_params
 
     def get_backends(self, serialize=False):
-        fp = None
-        backends = {}
+        fp, backends = None, {}
         try:
-            fp = open(os.path.join(get_frontend_dir(), self.name), 'r')
+            fp = open(os.path.join(abs_path(FRONTEND_DIR), self.name), 'r')
             backends = json.loads(fp.read())
             fp.close()
-        except: pass
+        except:
+            pass
         finally:
             fp and fp.close()
 
         return json.dumps(backends, indent=4) if serialize else backends
 
     def _update_backends(self, backends):
-        fp = open(os.path.join(get_frontend_dir(), self.name), 'w')
+        fp = open(os.path.join(abs_path(FRONTEND_DIR), self.name), 'w')
         fp.write(json.dumps(backends, indent=4)+'\n')
         fp.close()
 
@@ -58,12 +60,12 @@ class Frontend(object):
 
     def enable_backend(self, host):
         backends = self.get_backends()
-        backends[host] = { 'state': 'enabled' }
+        backends[host]['state'] = 'enabled'
         self._update_backends(backends)
 
     def disable_backend(self, host):
         backends = self.get_backends()
-        backends[host] = { 'state': 'disabled' }
+        backends[host]['state'] = 'disabled'
         self._update_backends(backends)
 
 fe_reg = re.compile(r'\s*listen\s+([^\s]+)\s+([^\s]+)[\s$]+')
@@ -71,7 +73,7 @@ be_reg = re.compile(r'\s*{{BACKEND}}(.*)$')
 
 def parse_global():
     name, frontends = None, {}
-    fp = open(os.path.join(BASE_PATH, GLOBAL_CONFIG_FILE), 'r')
+    fp = open(abs_path(GLOBAL_CONFIG_FILE), 'r')
     for line in fp.readlines():
         m = fe_reg.match(line)
         if m:
@@ -87,7 +89,7 @@ def parse_global():
     return frontends
 
 def generate_config():
-    global_fp = open(os.path.join(BASE_PATH, GLOBAL_CONFIG_FILE), 'r')
+    global_fp = open(abs_path(GLOBAL_CONFIG_FILE), 'r')
     fp = open(os.path.join(BASE_PATH, 'haproxy.cfg.temp'), 'w')
     fp.write(CFG_HEADER)
 
@@ -130,20 +132,14 @@ def generate_config():
 
         fp.write(line)
 
-def get_frontend_dir():
-    return os.path.join(BASE_PATH, FRONTEND_DIR)
-
-def get_frontends():
-    return parse_global()
-    #frontend_dir = get_frontend_dir()
-    #TODO: this list should come from parsing the existing haproxy.cfg, not the frontends directory
-    #return filter(lambda f: os.path.isfile(os.path.join(frontend_dir, f)), os.listdir(frontend_dir))
+    global_fp and global_fp.close()
+    fp and fp.close()
 
 def do_showall(*args, **kwargs):
     results = {}
     kwargs['serialize'] = False
 
-    for frontend_name in get_frontends().keys(): 
+    for frontend_name in parse_global().keys(): 
         results[frontend_name] = do_show(*(frontend_name,), **kwargs)
     return json.dumps(results, indent=4)
 
@@ -156,78 +152,52 @@ def do_show(*args, **kwargs):
     results = frontend.get_backends(serialize=kwargs.get('serialize', True))
     return results
 
-def do_add(*args, **kwargs):
-    if not 2 <= len(args) <= 3:
-        do_help()
+def validate_args(*args):
+    if len(args) < 2: do_help()
 
     frontend_name, host = args[:2]
-    state = args[2] if len(args) == 3 else 'enabled'
-    if state not in ('enabled', 'disabled',):
-        do_help()
-
-    frontends = get_frontends()
+    frontends = parse_global()
     if frontend_name not in frontends:
         error('Frontend %s not found' % frontend_name)
         sys.exit(1)
+
+    return (frontend_name, host, frontends, args[2:],) 
+
+def do_add(*args, **kwargs):
+    (frontend_name, host, frontends, args_tail,) = validate_args(*args)
+
+    if len(args_tail) > 1: do_help()
+
+    state = args_tail[0] if len(args) == 1 else 'enabled'
+    if state not in ('enabled', 'disabled',): do_help()
 
     frontends[frontend_name].add_backend(host, state=state)
     generate_config()
-
     return do_show(*(frontend_name,))
 
 def do_remove(*args, **kwargs):
-    if len(args) != 2:
-        do_help()
-
-    frontend_name, host = args[:2]
-
-    frontends = get_frontends()
-    if frontend_name not in frontends:
-        error('Frontend %s not found' % frontend_name)
-        sys.exit(1)
-
+    (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].remove_backend(host)
     generate_config()
-
     return do_show(*(frontend_name,))
 
 def do_enable(*args, **kwargs):
-    if len(args) != 2:
-        do_help()
-
-    frontend_name, host = args[:2]
-
-    frontends = get_frontends()
-    if frontend_name not in frontends:
-        error('Frontend %s not found' % frontend_name)
-        sys.exit(1)
-
+    (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].enable_backend(host)
     generate_config()
-
     return do_show(*(frontend_name,))
 
 def do_disable(*args, **kwargs):
-    if len(args) != 2:
-        do_help()
-
-    frontend_name, host = args[:2]
-
-    frontends = get_frontends()
-    if frontend_name not in frontends:
-        error('Frontend %s not found' % frontend_name)
-        sys.exit(1)
-
+    (frontend_name, host, frontends, args_tail,) = validate_args(*args)
     frontends[frontend_name].disable_backend(host)
     generate_config()
-
     return do_show(*(frontend_name,))
 
 def do_help(args=None):
         info('''Usage: charon <command> [<args>]
 
 Available commands are:
-all
+showall
 show <frontend_name>
 add <frontend_name> <host> <enabled|disabled>(optional)
 remove <frontend_name> <host>
@@ -236,10 +206,7 @@ disable <frontend_name> <host>''')
         sys.exit(2) 
 
 if __name__ == '__main__':
-
-    if len(sys.argv) < 2:
-        do_help()
-        sys.exit(2)
+    if len(sys.argv) < 2: do_help()
 
     commands = {
         'help': do_help,
