@@ -169,7 +169,7 @@ def validate_args(*args):
 def do_setup(*args, **kwargs):
     mkdir(BASE_PATH, empty=True)
     mkdir(abs_path(FRONTEND_DIR), empty=True)
-    global_str = resource_string(__name__, '../config/global.example')
+    global_str = resource_string(__name__, 'global.example')
     fp = open(abs_path(GLOBAL_CONFIG_FILE), 'w')
     fp.write(global_str)
     fp.close()

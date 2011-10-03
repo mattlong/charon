@@ -15,9 +15,7 @@ setup(
     entry_points={
         'console_scripts': ['charon = charon:main',],
     },
-    data_files=[
-        ('config', ['global', 'global.example'],),
-    ],
+    include_package_data=True,
     classifiers=[
         'Programming Language :: Python',
         'Programming Language :: Python :: 2',

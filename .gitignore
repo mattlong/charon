@@ -1,6 +1,5 @@
 *.pyc
 frontends
-global
 MANIFEST
 dist
 charon.egg-info

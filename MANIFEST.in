@@ -1,7 +1,7 @@
+include MANIFEST.in
+include .gitignore
 include README
 include README.markdown
-include MANIFEST.in
-include global.example
-include .gitignore
+include charon/global.example
 recursive-include charon *.py
 prune charon/*.pyc
