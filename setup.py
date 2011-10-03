@@ -1,8 +1,8 @@
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 setup(
     name="charon",
-    packages=['charon'],
+    packages=find_packages(),
     version="0.1.0",
     author="Matt Long",
     license="MIT",
@@ -11,9 +11,13 @@ setup(
     description="A set of tools to manage the load balancer HAProxy",
     long_description="Charon is a set a tools to manage an instance of the load balancer HAProxy. You can do so either locally or remotely using either the command-line directly or via a Fabric wrapper.",
     install_requires=['Fabric==1.2.2'],
-    #entry_points={
-    #    'console_scripts': ['charon = charon:main',],
-    #},
+    zip_safe=False,
+    entry_points={
+        'console_scripts': ['charon = charon:main',],
+    },
+    data_files=[
+        ('config', ['global', 'global.example'],),
+    ],
     classifiers=[
         'Programming Language :: Python',
         'Programming Language :: Python :: 2',

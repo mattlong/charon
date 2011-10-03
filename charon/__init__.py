@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys, os, shutil, json, re
+from pkg_resources import resource_string
 
 from fabric import context_managers
 from fabric.api import local
@@ -165,6 +166,14 @@ def validate_args(*args):
 
     return (frontend_name, host, frontends, args[2:],) 
 
+def do_setup(*args, **kwargs):
+    mkdir(BASE_PATH, empty=True)
+    mkdir(abs_path(FRONTEND_DIR), empty=True)
+    global_str = resource_string(__name__, '../config/global.example')
+    fp = open(abs_path(GLOBAL_CONFIG_FILE), 'w')
+    fp.write(global_str)
+    fp.close()
+
 def do_show(*args, **kwargs):
     results = {}
     (frontend_name, host, frontends, args_tail,) = validate_args(*args)
@@ -235,6 +244,7 @@ def main():
 
     commands = {
         'help': do_help,
+        'setup': do_setup,
         'show': do_show,
         'add': do_add,
         'remove': do_remove,
