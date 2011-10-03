@@ -230,9 +230,8 @@ enable <frontend_name> <host>
 disable <frontend_name> <host>''')
         sys.exit(2) 
 
-def main(*args, **kwargs):
-    args = args[1:]
-    if len(args) < 1: do_help()
+def main():
+    if len(sys.argv) < 2: do_help()
 
     commands = {
         'help': do_help,
@@ -243,7 +242,7 @@ def main(*args, **kwargs):
         'disable': do_disable,
     }
 
-    command, args = args[0].lower().replace('-', '_'), args[1:]
+    command, args = sys.argv[1].lower().replace('-', '_'), sys.argv[2:]
     if command not in commands.keys():
         info("charon: '%s' is not a charon command. See 'charon help'." % (command,))
         sys.exit(2)

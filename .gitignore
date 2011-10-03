@@ -1,4 +1,5 @@
 *.pyc
-*.cnf
 frontends
 global
+MANIFEST
+dist

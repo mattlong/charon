@@ -1,0 +1,7 @@
+include README
+include README.markdown
+include MANIFEST.in
+include global.example
+include .gitignore
+recursive-include charon *.py
+prune charon/*.pyc
