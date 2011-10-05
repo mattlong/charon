@@ -4,7 +4,7 @@ import sys, os, shutil, json, re
 from pkg_resources import resource_string
 
 from fabric import context_managers
-from fabric.api import local
+from fabric.api import settings, local
 from fabric.network import disconnect_all
 
 BASE_PATH = '/etc/charon'
@@ -144,7 +144,7 @@ def generate_config():
     shutil.move(os.path.join(BASE_PATH, 'haproxy.cfg.temp'), HAPROXY_CFG_PATH)
 
 def reload_haproxy():
-    with context_managers.hide('everything'):
+    with settings(abort_on_prompts=True, context_managers.hide('everything')):
         result = local('/etc/init.d/haproxy reload', capture=False)
         disconnect_all()
 

@@ -4,14 +4,14 @@ from fabric import context_managers
 from fabric.api import settings, env, sudo, run
 from fabric.network import disconnect_all
 
-#env.key_filename = ['/home/ubuntu/.ssh/dev_key_pair.pem']
-PROXY_HOST = '10.112.91.114'
+def set_host(host):
+    env.host_string = host
 
 def set_key_filename(obj):
     env.key_filename = obj
 
 def _do_command(command):
-    with settings(context_managers.hide('everything'), host_string=PROXY_HOST):
+    with settings(abort_on_prompts=True, context_managers.hide('everything')):
         result = sudo(command)
 
     old_stdout, sys.stdout = sys.stdout, open(os.devnull, 'w')
