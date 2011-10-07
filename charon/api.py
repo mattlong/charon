@@ -1,8 +1,12 @@
 import sys, os, json
 
 from fabric import context_managers
-from fabric.api import settings, env, sudo, run
+from fabric.api import settings, env, sudo
 from fabric.network import disconnect_all
+
+from charon import loader
+
+configured = False
 
 def set_host(host):
     env.host_string = host
@@ -10,8 +14,24 @@ def set_host(host):
 def set_key_filename(obj):
     env.key_filename = obj
 
+def configure():
+    conf = loader.read_configuration()
+
+    if 'CHARON_HAPROXY_HOST' not in conf:
+        raise Exception('You mush specify CHARON_HAPROXY_HOST in your configuration module')
+    set_host(conf['CHARON_HAPROXY_HOST'])
+
+    if 'CHARON_KEY_FILENAME' in conf:
+        set_key_filename(conf['CHARON_KEY_FILENAME'])
+
+    global configured
+    configured = True
+
 def _do_command(command):
-    with settings(abort_on_prompts=True, context_managers.hide('everything')):
+    if not configured:
+        configure()
+
+    with settings(context_managers.hide('everything'), abort_on_prompts=True):
         result = sudo(command)
 
     old_stdout, sys.stdout = sys.stdout, open(os.devnull, 'w')

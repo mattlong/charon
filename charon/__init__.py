@@ -144,10 +144,9 @@ def generate_config():
     shutil.move(os.path.join(BASE_PATH, 'haproxy.cfg.temp'), HAPROXY_CFG_PATH)
 
 def reload_haproxy():
-    with settings(abort_on_prompts=True, context_managers.hide('everything')):
+    with settings(context_managers.hide('everything'), abort_on_prompts=True):
         result = local('/etc/init.d/haproxy reload', capture=False)
         disconnect_all()
-
     return result.return_code
 
 def validate_args(*args):
