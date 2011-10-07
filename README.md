@@ -1,28 +1,34 @@
-##Introduction##
+## Introduction
 Charon is a set a tools to manage an instance of the load balancer HAProxy. You can do so either locally or remotely using either the command-line directly or via a Fabric wrapper.
 
-##Command Line##
-show [<frontend_name> [<host>]]
-add <frontend_name> <host> [<enabled|disabled>]
-remove <frontend_name> <host>
-enable <frontend_name> <host>
-disable <frontend_name> <host>
+## Command Line
+    show [<frontend_name> [<host>]]
+    add <frontend_name> <host> [<enabled|disabled>]
+    remove <frontend_name> <host>
+    enable <frontend_name> <host>
+    disable <frontend_name> <host>
 
-##Fabric API##
-get_frontends()
-  => { '<frontend_name>': <get_backends('<frontend_name>')>, ... }
+## Python Configuration
+Charon can (and should) be configured via a Python module named 'charonconfig' that is available on the system path. The following settings are available:
 
-get_backends(frontend_name)
-  => { '<1.1.1.1:80>': { 'status': 'enabled' }, ... }
+CHARON_HAPROXY_HOST
+The hostname your HAProxy instance is running on. It must be accessible via SSH on port 22.
 
-add_backend(frontend_name, host, status=enabled)
-  => same as get_backends(frontend_name) as if it were called after the operation
+CHARON_KEY_FILENAME (optional)
+Path to the local private SSL key to use to connect to your HAProxy instance. If not specified, the ususal default keys will be used. 
 
-remove_backend(frontend_name, host)
-  => same as get_backends(frontend_name) as if it were called after the operation
+## Python API
+    show(frontend=None, host=None)
+      => { '<frontend>': <backend>: { 'status': 'enabled'}, ... }
 
-disable_backend(frontend_name, host)
-  => same as get_backends(frontend_name) as if it were called after the operation
+    add(frontend, backend, state='enabled')
+      => same as show(frontend) after ther add operation
 
-enable_backend(frontend_name, host)
-  => same as get_backends(frontend_name) as if it were called after the operation
+    remove(frontend, backend)
+      => same as show(frontend) after ther remove operation
+
+    enable(frontend, backend)
+      => same as show(frontend) after ther enable operation
+
+    disable(frontend, backend)
+      => same as show(frontend) after ther disable operation
