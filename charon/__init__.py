@@ -7,6 +7,9 @@ from fabric import context_managers
 from fabric.api import settings, local
 from fabric.network import disconnect_all
 
+VERSION = "0.1.1"
+CONFIG_MODULE = 'charonconfig'
+
 BASE_PATH = '/etc/charon'
 GLOBAL_CONFIG_FILE = 'global'
 FRONTEND_DIR = 'frontends'

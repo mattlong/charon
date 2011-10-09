@@ -1,9 +1,11 @@
 from setuptools import setup, find_packages
 
+import charon
+
 setup(
     name="charon",
     packages=find_packages(),
-    version="0.1.0",
+    version=charon.VERSION,
     author="Matt Long",
     license="MIT",
     author_email="matt@mattlong.org",

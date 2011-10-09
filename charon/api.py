@@ -17,9 +17,8 @@ def set_key_filename(obj):
 def configure():
     conf = loader.read_configuration()
 
-    if 'CHARON_HAPROXY_HOST' not in conf:
-        raise Exception('You mush specify CHARON_HAPROXY_HOST in your configuration module')
-    set_host(conf['CHARON_HAPROXY_HOST'])
+    if 'CHARON_HAPROXY_HOST' in conf:
+        set_host(conf['CHARON_HAPROXY_HOST'])
 
     if 'CHARON_KEY_FILENAME' in conf:
         set_key_filename(conf['CHARON_KEY_FILENAME'])

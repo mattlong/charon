@@ -2,21 +2,21 @@ import sys, os, importlib
 import imp as _imp
 from contextlib import contextmanager
 
-DEFAULT_CONFIG_MODULE = 'charonconfig'
+import charon
 
 def read_configuration():
-    configname = os.environ.get("CHARON_CONFIG_MODULE", DEFAULT_CONFIG_MODULE)
+    configname = os.environ.get("CHARON_CONFIG_MODULE", charon.CONFIG_MODULE)
 
     try:
         find_module(configname)
     except ImportError:
-        print 'ERROR: No configuration module found.'
-        raise
+        print 'Could not find configuration module "%s". Be sure to call api.set_host before making API calls.'
+        return {}
     else:
         charonconfig = import_from_cwd(configname)
         usercfg = dict((key, getattr(charonconfig, key))
                         for key in dir(charonconfig)
-                        if key[0].isupper() and not key.startswith('_'))
+                        if key.startswith('CHARON_'))
         return usercfg
 
 @contextmanager
