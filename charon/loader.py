@@ -10,7 +10,7 @@ def read_configuration():
     try:
         find_module(configname)
     except ImportError:
-        print 'Could not find configuration module "%s". Be sure to call api.set_host before making API calls.'
+        print 'Could not find configuration module "%s". Be sure to call api.set_host before making API calls.' % (configname,)
         return {}
     else:
         charonconfig = import_from_cwd(configname)
