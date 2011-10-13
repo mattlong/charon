@@ -15,7 +15,7 @@ setup(
     install_requires=['Fabric==1.2.2'],
     zip_safe=False,
     entry_points={
-        'console_scripts': ['charon = charon:main',],
+        'console_scripts': ['charon = charon.server:main',],
     },
     include_package_data=True,
     classifiers=[
